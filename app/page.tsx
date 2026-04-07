@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 type Food = { id: string; name: string; carbs: number; protein: number; fat: number; calories?: number };
 type Entry = { id: string; food: Food; grams: number; date: string };
+type FoodRow = { id: string; name: string; carbs: any; protein: any; fat: any; calories: any; last_used_at?: any };
 
 export default function HomePage() {
 	const { phase, trainingDay, setPhase, setTrainingDay } = useAppStore();
@@ -61,7 +62,7 @@ export default function HomePage() {
 				.order('sort_order', { ascending: false })
 				.order('created_at', { ascending: false });
 
-			let foods = foodsWithRecent;
+			let foods: FoodRow[] = (foodsWithRecent as FoodRow[] | null) ?? [];
 			if (foodsWithRecentError) {
 				// 兜底：当 last_used_at 字段尚未迁移时，退回基础排序，保证首页仍全量显示
 				const { data: fallbackFoods } = await supabase
@@ -70,7 +71,7 @@ export default function HomePage() {
 					.is('user_id', null)
 					.order('sort_order', { ascending: false })
 					.order('created_at', { ascending: false });
-				foods = fallbackFoods ?? [];
+				foods = ((fallbackFoods ?? []) as FoodRow[]).map((f) => ({ ...f, last_used_at: null }));
 			}
 
 			if (mounted && foods) {
