@@ -52,13 +52,27 @@ export default function HomePage() {
 				}));
 				setEntries(mapped);
 			}
-			// 读取“常用食物”快捷列表（最近添加的 12 个）
-			const { data: foods } = await supabase
+			// 读取“常用食物”快捷列表（与食物库管理保持一致：全量 + 同排序）
+			const { data: foodsWithRecent, error: foodsWithRecentError } = await supabase
 				.from('foods')
-				.select('id, name, carbs, protein, fat, calories')
+				.select('id, name, carbs, protein, fat, calories, last_used_at')
 				.is('user_id', null)
-				.order('created_at', { ascending: false })
-				.limit(12);
+				.order('last_used_at', { ascending: false, nullsFirst: false })
+				.order('sort_order', { ascending: false })
+				.order('created_at', { ascending: false });
+
+			let foods = foodsWithRecent;
+			if (foodsWithRecentError) {
+				// 兜底：当 last_used_at 字段尚未迁移时，退回基础排序，保证首页仍全量显示
+				const { data: fallbackFoods } = await supabase
+					.from('foods')
+					.select('id, name, carbs, protein, fat, calories')
+					.is('user_id', null)
+					.order('sort_order', { ascending: false })
+					.order('created_at', { ascending: false });
+				foods = fallbackFoods ?? [];
+			}
+
 			if (mounted && foods) {
 				setQuickFoods(
 					foods.map((f: any) => ({
@@ -122,6 +136,21 @@ export default function HomePage() {
 			{ carbs: 0, protein: 0, fat: 0, calories: 0 }
 		);
 	}, [entries]);
+
+	async function markFoodUsed(foodId: string) {
+		if (!supabase) return;
+		const nowIso = new Date().toISOString();
+		await supabase.from('foods').update({ last_used_at: nowIso }).eq('id', foodId).is('user_id', null);
+		// 本地先更新，保证点击后立即重排，跨设备则由数据库同步
+		setQuickFoods((prev) => {
+			const idx = prev.findIndex((f) => f.id === foodId);
+			if (idx < 0) return prev;
+			const next = [...prev];
+			const [used] = next.splice(idx, 1);
+			next.unshift(used);
+			return next;
+		});
+	}
 
 	function looksLikeUuid(id: string) {
 		return /^[0-9a-f-]{36}$/i.test(id);
@@ -201,6 +230,7 @@ export default function HomePage() {
 				.single();
 			if (!error && data) {
 				setEntries((prev) => [{ id: data.id, food: finalFood, grams, date: today }, ...prev]);
+				await markFoodUsed(finalFood.id);
 				return;
 			} else if (error) {
 				setDbError(`写入 entries 失败：${error.message}`);
@@ -210,7 +240,7 @@ export default function HomePage() {
 		setEntries((prev) => [{ id: Math.random().toString(36).slice(2), food, grams, date: today }, ...prev]);
 	}
 
-	async function addCustomFood() {
+	async function addCustomFood(mode: 'todayOnly' | 'todayAndQuick') {
 		if (!customName) return;
 		// 不再输入克数：统一按 100g 计入
 		const grams = 100;
@@ -221,29 +251,27 @@ export default function HomePage() {
 			fat: parseFloat(customMacros.fat || '0') || 0,
 			calories: customMacros.calories ? parseFloat(customMacros.calories) : undefined
 		};
-		if (supabase) {
-			const { data: foodRow, error } = await supabase
-				.from('foods')
-				.insert({
-					user_id: null,
-					name: baseFood.name,
-					carbs: baseFood.carbs,
-					protein: baseFood.protein,
-					fat: baseFood.fat,
-					calories: baseFood.calories ?? null
-				})
-				.select('id')
-				.single();
-			if (!error && foodRow) {
-				const food: Food = { id: foodRow.id, ...baseFood };
-				await quickAdd(food, grams);
-				setCustomName('');
-				setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
-				return;
+
+		if (mode === 'todayAndQuick') {
+			// 同步到常用食物：写入 foods 后再加入今日记录
+			if (supabase) {
+				const food = await ensureFoodInDb(baseFood);
+				if (food) {
+					await quickAdd(food, grams);
+					setCustomName('');
+					setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
+					return;
+				}
 			}
+			const food: Food = { id: Math.random().toString(36).slice(2), ...baseFood };
+			await quickAdd(food, grams);
+			setCustomName('');
+			setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
+			return;
 		}
-		const food: Food = { id: Math.random().toString(36).slice(2), ...baseFood };
-		await quickAdd(food, grams);
+
+		// 仅加入今日计算：不写入 foods（不会进入常用食物）
+		setEntries((prev) => [{ id: Math.random().toString(36).slice(2), food: { id: `temp-${Date.now()}`, ...baseFood }, grams, date: today }, ...prev]);
 		setCustomName('');
 		setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
 	}
@@ -366,9 +394,12 @@ export default function HomePage() {
 							<input value={customMacros.protein} onChange={(e) => setCustomMacros((s) => ({ ...s, protein: e.target.value }))} placeholder="蛋白质" className="rounded border border-gray-300 px-3 py-2 text-sm" />
 							<input value={customMacros.fat} onChange={(e) => setCustomMacros((s) => ({ ...s, fat: e.target.value }))} placeholder="脂肪" className="rounded border border-gray-300 px-3 py-2 text-sm" />
 						</div>
-						<button onClick={addCustomFood} className="col-span-2 inline-flex items-center justify-center gap-2 rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white">
+						<button onClick={() => addCustomFood('todayOnly')} className="inline-flex items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-sm font-medium">
+							仅加入今日
+						</button>
+						<button onClick={() => addCustomFood('todayAndQuick')} className="inline-flex items-center justify-center gap-2 rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white">
 							<Salad size={16} />
-							添加到今日
+							加入今日并保存到常用
 						</button>
 					</div>
 				)}
