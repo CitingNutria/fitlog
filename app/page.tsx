@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 type Food = { id: string; name: string; carbs: number; protein: number; fat: number; calories?: number };
 type Entry = { id: string; food: Food; grams: number; date: string };
-type FoodRow = { id: string; name: string; carbs: any; protein: any; fat: any; calories: any; last_used_at?: any };
+type FoodRow = { id: string; name: string; carbs: any; protein: any; fat: any; calories: any; last_used_at?: any; show_in_quick?: any };
 
 export default function HomePage() {
 	const { phase, trainingDay, setPhase, setTrainingDay } = useAppStore();
@@ -58,20 +58,15 @@ export default function HomePage() {
 				.from('foods')
 				.select('id, name, carbs, protein, fat, calories, last_used_at')
 				.is('user_id', null)
+				.eq('show_in_quick', true)
 				.order('last_used_at', { ascending: false, nullsFirst: false })
 				.order('sort_order', { ascending: false })
 				.order('created_at', { ascending: false });
 
 			let foods: FoodRow[] = (foodsWithRecent as FoodRow[] | null) ?? [];
 			if (foodsWithRecentError) {
-				// 兜底：当 last_used_at 字段尚未迁移时，退回基础排序，保证首页仍全量显示
-				const { data: fallbackFoods } = await supabase
-					.from('foods')
-					.select('id, name, carbs, protein, fat, calories')
-					.is('user_id', null)
-					.order('sort_order', { ascending: false })
-					.order('created_at', { ascending: false });
-				foods = ((fallbackFoods ?? []) as FoodRow[]).map((f) => ({ ...f, last_used_at: null }));
+				setDbError(`读取常用食物失败：${foodsWithRecentError.message}。请先执行 show_in_quick 数据库迁移。`);
+				foods = [];
 			}
 
 			if (mounted && foods) {
@@ -157,7 +152,7 @@ export default function HomePage() {
 		return /^[0-9a-f-]{36}$/i.test(id);
 	}
 
-	async function ensureFoodInDb(base: Omit<Food, 'id'>): Promise<Food | null> {
+	async function ensureFoodInDb(base: Omit<Food, 'id'>, showInQuick = true): Promise<Food | null> {
 		if (!supabase) return null;
 		// 先按名称查找现有记录（避免重复）
 		const { data: existing, error: selErr } = await supabase
@@ -168,6 +163,9 @@ export default function HomePage() {
 			.limit(1)
 			.maybeSingle();
 		if (!selErr && existing) {
+			if (showInQuick) {
+				await supabase.from('foods').update({ show_in_quick: true }).eq('id', existing.id);
+			}
 			return {
 				id: existing.id,
 				name: existing.name,
@@ -186,7 +184,8 @@ export default function HomePage() {
 				carbs: base.carbs,
 				protein: base.protein,
 				fat: base.fat,
-				calories: base.calories ?? null
+				calories: base.calories ?? null,
+				show_in_quick: showInQuick
 			})
 			.select('id')
 			.single();
@@ -256,9 +255,10 @@ export default function HomePage() {
 		if (mode === 'todayAndQuick') {
 			// 同步到常用食物：写入 foods 后再加入今日记录
 			if (supabase) {
-				const food = await ensureFoodInDb(baseFood);
+				const food = await ensureFoodInDb(baseFood, true);
 				if (food) {
 					await quickAdd(food, grams);
+					setQuickFoods((prev) => prev.some((f) => f.id === food.id) ? prev : [food, ...prev]);
 					setCustomName('');
 					setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
 					return;
@@ -271,7 +271,16 @@ export default function HomePage() {
 			return;
 		}
 
-		// 仅加入今日计算：不写入 foods（不会进入常用食物）
+		// 仅加入今日：写入数据库用于刷新/多端同步，但不显示在常用食物列表。
+		if (supabase) {
+			const food = await ensureFoodInDb(baseFood, false);
+			if (food) {
+				await quickAdd(food, grams);
+				setCustomName('');
+				setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
+				return;
+			}
+		}
 		setEntries((prev) => [{ id: Math.random().toString(36).slice(2), food: { id: `temp-${Date.now()}`, ...baseFood }, grams, date: today }, ...prev]);
 		setCustomName('');
 		setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
@@ -434,4 +443,3 @@ export default function HomePage() {
 		</div>
 	);
 }
-

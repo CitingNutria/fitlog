@@ -19,6 +19,7 @@ export default function FoodsPage() {
 				.from('foods')
 				.select('id, name, carbs, protein, fat, sort_order')
 				.is('user_id', null)
+				.eq('show_in_quick', true)
 				.order('sort_order', { ascending: false })
 				.order('created_at', { ascending: false });
 			if (data) {
@@ -47,6 +48,7 @@ export default function FoodsPage() {
 					carbs: parseFloat(carbs || '0') || 0,
 					protein: parseFloat(protein || '0') || 0,
 					fat: parseFloat(fat || '0') || 0,
+					show_in_quick: true,
 					sort_order: (foods[0]?.sort_order ?? 0) + 1
 				})
 				.select('id')
@@ -138,4 +140,3 @@ export default function FoodsPage() {
 		</div>
 	);
 }
-
