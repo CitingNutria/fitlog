@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { macrosForGrams } from '@/lib/nutrition';
 import { RingTriplet } from '@/components/RingTriplet';
 
-type Food = { id: string; name: string; carbs: number; protein: number; fat: number };
+type Food = { id: string; name: string; carbs: number; protein: number; fat: number; sodium_mg?: number };
 type Entry = { id: string; food: Food; grams: number; date: string; phase: string | null; training_day: boolean | null };
 
 export default function HistoryPage() {
@@ -26,7 +26,7 @@ export default function HistoryPage() {
 			const untilStr = monthEnd.toISOString().slice(0, 10);
 			const { data } = await supabase
 				.from('entries')
-				.select('id, grams, date, phase, training_day, food:food_id ( id, name, carbs, protein, fat )')
+				.select('id, grams, date, phase, training_day, food:food_id ( id, name, carbs, protein, fat, sodium_mg )')
 				.is('user_id', null)
 				.gte('date', sinceStr)
 				.lte('date', untilStr)
@@ -46,7 +46,8 @@ export default function HistoryPage() {
 							name: r.food.name,
 							carbs: parseFloat(r.food.carbs),
 							protein: parseFloat(r.food.protein),
-							fat: parseFloat(r.food.fat)
+							fat: parseFloat(r.food.fat),
+							sodium_mg: r.food.sodium_mg != null ? parseFloat(r.food.sodium_mg) : 0
 						}
 					};
 					map[e.date] ||= [];
@@ -115,10 +116,10 @@ export default function HistoryPage() {
 				{cells.map((c, idx) => {
 					if (!c.dateStr) return <div key={idx} className="h-20 rounded border border-transparent" />;
 					const list = byDate[c.dateStr] || [];
-					let totals = { c: 0, p: 0, f: 0, kcal: 0 };
+					let totals = { c: 0, p: 0, f: 0, kcal: 0, sodium: 0 };
 					for (const e of list) {
 						const m = macrosForGrams(e.food, e.grams);
-						totals = { c: totals.c + m.carbs, p: totals.p + m.protein, f: totals.f + m.fat, kcal: totals.kcal + m.calories };
+						totals = { c: totals.c + m.carbs, p: totals.p + m.protein, f: totals.f + m.fat, kcal: totals.kcal + m.calories, sodium: totals.sodium + m.sodium_mg };
 					}
 					const meta = list[0];
 					const key = meta ? `${meta.phase ?? 'maintain'}:${meta.training_day ? 'training' : 'rest'}` : '';
@@ -154,7 +155,7 @@ export default function HistoryPage() {
 											<div className="text-xs text-gray-600">{e.grams} g</div>
 										</div>
 										<div className="mt-0.5 text-xs text-gray-600">
-											热量 {Math.round(m.calories)} kcal · 碳水 {Math.round(m.carbs)}g · 蛋白质 {Math.round(m.protein)}g · 脂肪 {Math.round(m.fat)}g
+											热量 {Math.round(m.calories)} kcal · 碳水 {Math.round(m.carbs)}g · 蛋白质 {Math.round(m.protein)}g · 脂肪 {Math.round(m.fat)}g · 钠 {Math.round(m.sodium_mg)}mg
 										</div>
 									</div>
 								);
@@ -171,10 +172,10 @@ export default function HistoryPage() {
 					.sort((a, b) => (a < b ? 1 : -1))
 					.map((ds) => {
 						const list = byDate[ds] || [];
-						let totals = { c: 0, p: 0, f: 0, kcal: 0 };
+						let totals = { c: 0, p: 0, f: 0, kcal: 0, sodium: 0 };
 						for (const e of list) {
 							const m = macrosForGrams(e.food, e.grams);
-							totals = { c: totals.c + m.carbs, p: totals.p + m.protein, f: totals.f + m.fat, kcal: totals.kcal + m.calories };
+							totals = { c: totals.c + m.carbs, p: totals.p + m.protein, f: totals.f + m.fat, kcal: totals.kcal + m.calories, sodium: totals.sodium + m.sodium_mg };
 						}
 						return (
 							<button key={ds} onClick={() => setDetailDate(ds)} className="w-full rounded border border-gray-200 p-2 text-left">
@@ -183,7 +184,7 @@ export default function HistoryPage() {
 									<div className="text-xs text-gray-600">共 {list.length} 条</div>
 								</div>
 								<div className="mt-0.5 text-xs text-gray-600">
-									{Math.round(totals.kcal)} kcal · 碳水 {Math.round(totals.c)}g · 蛋白质 {Math.round(totals.p)}g · 脂肪 {Math.round(totals.f)}g
+									{Math.round(totals.kcal)} kcal · 碳水 {Math.round(totals.c)}g · 蛋白质 {Math.round(totals.p)}g · 脂肪 {Math.round(totals.f)}g · 钠 {Math.round(totals.sodium)}mg
 								</div>
 							</button>
 						);
@@ -195,4 +196,3 @@ export default function HistoryPage() {
 		</div>
 	);
 }
-

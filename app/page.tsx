@@ -7,9 +7,9 @@ import { useAppStore } from '@/store/useAppStore';
 import { Dumbbell, Plus, Salad } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
-type Food = { id: string; name: string; carbs: number; protein: number; fat: number; calories?: number };
+type Food = { id: string; name: string; carbs: number; protein: number; fat: number; calories?: number; sodium_mg?: number };
 type Entry = { id: string; food: Food; grams: number; date: string };
-type FoodRow = { id: string; name: string; carbs: any; protein: any; fat: any; calories: any; last_used_at?: any; show_in_quick?: any };
+type FoodRow = { id: string; name: string; carbs: any; protein: any; fat: any; calories: any; sodium_mg?: any; last_used_at?: any; show_in_quick?: any };
 
 export default function HomePage() {
 	const { phase, trainingDay, setPhase, setTrainingDay } = useAppStore();
@@ -17,14 +17,14 @@ export default function HomePage() {
 	const [quickFoods, setQuickFoods] = useState<Food[]>([]);
 	const [search, setSearch] = useState('');
 	const [customName, setCustomName] = useState('');
-	const [customMacros, setCustomMacros] = useState({ carbs: '', protein: '', fat: '', calories: '' });
+	const [customMacros, setCustomMacros] = useState({ carbs: '', protein: '', fat: '', calories: '', sodium_mg: '' });
 	const [customGrams, setCustomGrams] = useState<string>('');
 	const [showCustomAdd, setShowCustomAdd] = useState(false);
 	const today = getDateStringWith4amBoundary();
 	const [dbChecking, setDbChecking] = useState(false);
 	const [dbMessage, setDbMessage] = useState<string | null>(null);
 	const [dbError, setDbError] = useState<string | null>(null);
-	const [targets, setTargets] = useState<{ proteinG: number; fatG: number; carbsG: number; calories: number } | null>(null);
+	const [targets, setTargets] = useState<{ proteinG: number; fatG: number; carbsG: number; calories: number; sodiumMg: number } | null>(null);
 
 	useEffect(() => {
 		let mounted = true;
@@ -33,7 +33,7 @@ export default function HomePage() {
 			// 无登录模式：读取 user_id 为 null 的今日记录
 			const { data: rows } = await supabase
 				.from('entries')
-				.select('id, grams, date, food:food_id ( id, name, carbs, protein, fat, calories )')
+				.select('id, grams, date, food:food_id ( id, name, carbs, protein, fat, calories, sodium_mg )')
 				.is('user_id', null)
 				.eq('date', today)
 				.order('created_at', { ascending: false });
@@ -48,7 +48,8 @@ export default function HomePage() {
 						carbs: parseFloat(r.food.carbs),
 						protein: parseFloat(r.food.protein),
 						fat: parseFloat(r.food.fat),
-						calories: r.food.calories != null ? parseFloat(r.food.calories) : undefined
+						calories: r.food.calories != null ? parseFloat(r.food.calories) : undefined,
+						sodium_mg: r.food.sodium_mg != null ? parseFloat(r.food.sodium_mg) : 0
 					}
 				}));
 				setEntries(mapped);
@@ -56,7 +57,7 @@ export default function HomePage() {
 			// 读取“常用食物”快捷列表（与食物库管理保持一致：全量 + 同排序）
 			const { data: foodsWithRecent, error: foodsWithRecentError } = await supabase
 				.from('foods')
-				.select('id, name, carbs, protein, fat, calories, last_used_at')
+				.select('id, name, carbs, protein, fat, calories, sodium_mg, last_used_at')
 				.is('user_id', null)
 				.eq('show_in_quick', true)
 				.order('last_used_at', { ascending: false, nullsFirst: false })
@@ -77,7 +78,8 @@ export default function HomePage() {
 						carbs: parseFloat(f.carbs),
 						protein: parseFloat(f.protein),
 						fat: parseFloat(f.fat),
-						calories: f.calories != null ? parseFloat(f.calories) : undefined
+						calories: f.calories != null ? parseFloat(f.calories) : undefined,
+						sodium_mg: f.sodium_mg != null ? parseFloat(f.sodium_mg) : 0
 					}))
 				);
 			}
@@ -98,7 +100,7 @@ export default function HomePage() {
 				fat = parseFloat(mt.fat_g);
 				carbs = parseFloat(mt.carbs_g);
 			}
-			if (mounted) setTargets(computeMacroTargetsManual(protein, fat, carbs));
+			if (mounted) setTargets({ ...computeMacroTargetsManual(protein, fat, carbs), sodiumMg: 2000 });
 		}
 		init();
 		return () => {
@@ -126,10 +128,11 @@ export default function HomePage() {
 					carbs: acc.carbs + m.carbs,
 					protein: acc.protein + m.protein,
 					fat: acc.fat + m.fat,
-					calories: acc.calories + m.calories
+					calories: acc.calories + m.calories,
+					sodium_mg: acc.sodium_mg + m.sodium_mg
 				};
 			},
-			{ carbs: 0, protein: 0, fat: 0, calories: 0 }
+			{ carbs: 0, protein: 0, fat: 0, calories: 0, sodium_mg: 0 }
 		);
 	}, [entries]);
 
@@ -157,7 +160,7 @@ export default function HomePage() {
 		// 先按名称查找现有记录（避免重复）
 		const { data: existing, error: selErr } = await supabase
 			.from('foods')
-			.select('id, name, carbs, protein, fat, calories')
+			.select('id, name, carbs, protein, fat, calories, sodium_mg')
 			.is('user_id', null)
 			.eq('name', base.name)
 			.limit(1)
@@ -172,7 +175,8 @@ export default function HomePage() {
 				carbs: parseFloat(existing.carbs),
 				protein: parseFloat(existing.protein),
 				fat: parseFloat(existing.fat),
-				calories: existing.calories != null ? parseFloat(existing.calories) : undefined
+				calories: existing.calories != null ? parseFloat(existing.calories) : undefined,
+				sodium_mg: existing.sodium_mg != null ? parseFloat(existing.sodium_mg) : 0
 			};
 		}
 		// 插入新食物
@@ -185,6 +189,7 @@ export default function HomePage() {
 				protein: base.protein,
 				fat: base.fat,
 				calories: base.calories ?? null,
+				sodium_mg: base.sodium_mg ?? 0,
 				show_in_quick: showInQuick
 			})
 			.select('id')
@@ -207,7 +212,8 @@ export default function HomePage() {
 					carbs: food.carbs,
 					protein: food.protein,
 					fat: food.fat,
-					calories: food.calories
+					calories: food.calories,
+					sodium_mg: food.sodium_mg
 				});
 				if (!created) {
 					// 回退为本地
@@ -249,7 +255,8 @@ export default function HomePage() {
 			carbs: parseFloat(customMacros.carbs || '0') || 0,
 			protein: parseFloat(customMacros.protein || '0') || 0,
 			fat: parseFloat(customMacros.fat || '0') || 0,
-			calories: customMacros.calories ? parseFloat(customMacros.calories) : undefined
+			calories: customMacros.calories ? parseFloat(customMacros.calories) : undefined,
+			sodium_mg: parseFloat(customMacros.sodium_mg || '0') || 0
 		};
 
 		if (mode === 'todayAndQuick') {
@@ -260,14 +267,14 @@ export default function HomePage() {
 					await quickAdd(food, grams);
 					setQuickFoods((prev) => prev.some((f) => f.id === food.id) ? prev : [food, ...prev]);
 					setCustomName('');
-					setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
+					setCustomMacros({ carbs: '', protein: '', fat: '', calories: '', sodium_mg: '' });
 					return;
 				}
 			}
 			const food: Food = { id: Math.random().toString(36).slice(2), ...baseFood };
 			await quickAdd(food, grams);
 			setCustomName('');
-			setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
+			setCustomMacros({ carbs: '', protein: '', fat: '', calories: '', sodium_mg: '' });
 			return;
 		}
 
@@ -277,13 +284,13 @@ export default function HomePage() {
 			if (food) {
 				await quickAdd(food, grams);
 				setCustomName('');
-				setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
+				setCustomMacros({ carbs: '', protein: '', fat: '', calories: '', sodium_mg: '' });
 				return;
 			}
 		}
 		setEntries((prev) => [{ id: Math.random().toString(36).slice(2), food: { id: `temp-${Date.now()}`, ...baseFood }, grams, date: today }, ...prev]);
 		setCustomName('');
-		setCustomMacros({ carbs: '', protein: '', fat: '', calories: '' });
+		setCustomMacros({ carbs: '', protein: '', fat: '', calories: '', sodium_mg: '' });
 	}
 
 	async function testDbConnection() {
@@ -369,6 +376,7 @@ export default function HomePage() {
 					<ProgressBar label="蛋白质 (g)" value={totals.protein} target={targets?.proteinG ?? 0} colorClass="bg-sky-500" />
 					<ProgressBar label="脂肪 (g)" value={totals.fat} target={targets?.fatG ?? 0} colorClass="bg-pink-500" />
 					<ProgressBar label="热量 (kcal)" value={totals.calories} target={targets?.calories ?? 0} colorClass="bg-amber-500" unit="kcal" />
+					<ProgressBar label="钠 (mg)" value={totals.sodium_mg} target={targets?.sodiumMg ?? 2000} colorClass="bg-violet-500" unit="mg" />
 				</div>
 			</section>
 
@@ -399,10 +407,11 @@ export default function HomePage() {
 				{showCustomAdd && (
 					<div className="grid grid-cols-2 gap-2">
 						<input value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="名称" className="col-span-2 rounded border border-gray-300 px-3 py-2 text-sm" />
-						<div className="col-span-2 grid grid-cols-3 gap-2">
+						<div className="col-span-2 grid grid-cols-2 gap-2">
 							<input value={customMacros.carbs} onChange={(e) => setCustomMacros((s) => ({ ...s, carbs: e.target.value }))} placeholder="碳水" className="rounded border border-gray-300 px-3 py-2 text-sm" />
 							<input value={customMacros.protein} onChange={(e) => setCustomMacros((s) => ({ ...s, protein: e.target.value }))} placeholder="蛋白质" className="rounded border border-gray-300 px-3 py-2 text-sm" />
 							<input value={customMacros.fat} onChange={(e) => setCustomMacros((s) => ({ ...s, fat: e.target.value }))} placeholder="脂肪" className="rounded border border-gray-300 px-3 py-2 text-sm" />
+							<input value={customMacros.sodium_mg} onChange={(e) => setCustomMacros((s) => ({ ...s, sodium_mg: e.target.value }))} placeholder="钠 mg" className="rounded border border-gray-300 px-3 py-2 text-sm" />
 						</div>
 						<button onClick={() => addCustomFood('todayOnly')} className="inline-flex items-center justify-center gap-2 rounded border border-gray-300 px-3 py-2 text-sm font-medium">
 							仅加入今日
@@ -432,7 +441,7 @@ export default function HomePage() {
 							</button>
 								</div>
 								<div className="mt-0.5 text-xs text-gray-600">
-									热量 {Math.round(m.calories)} kcal · 碳水 {Math.round(m.carbs)}g · 蛋白质 {Math.round(m.protein)}g · 脂肪 {Math.round(m.fat)}g
+									热量 {Math.round(m.calories)} kcal · 碳水 {Math.round(m.carbs)}g · 蛋白质 {Math.round(m.protein)}g · 脂肪 {Math.round(m.fat)}g · 钠 {Math.round(m.sodium_mg)}mg
 								</div>
 							</div>
 						);

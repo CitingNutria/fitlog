@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-type Food = { id: string; name: string; carbs: number; protein: number; fat: number; sort_order?: number };
+type Food = { id: string; name: string; carbs: number; protein: number; fat: number; sodium_mg: number; sort_order?: number };
 
 export default function FoodsPage() {
 	const [foods, setFoods] = useState<Food[]>([]);
@@ -11,13 +11,14 @@ export default function FoodsPage() {
 	const [carbs, setCarbs] = useState('');
 	const [protein, setProtein] = useState('');
 	const [fat, setFat] = useState('');
+	const [sodiumMg, setSodiumMg] = useState('');
 
 	useEffect(() => {
 		(async () => {
 			if (!supabase) return;
 			const { data } = await supabase
 				.from('foods')
-				.select('id, name, carbs, protein, fat, sort_order')
+				.select('id, name, carbs, protein, fat, sodium_mg, sort_order')
 				.is('user_id', null)
 				.eq('show_in_quick', true)
 				.order('sort_order', { ascending: false })
@@ -30,6 +31,7 @@ export default function FoodsPage() {
 						carbs: parseFloat(f.carbs),
 						protein: parseFloat(f.protein),
 						fat: parseFloat(f.fat),
+						sodium_mg: f.sodium_mg != null ? parseFloat(f.sodium_mg) : 0,
 						sort_order: f.sort_order ?? 0
 					}))
 				);
@@ -48,6 +50,7 @@ export default function FoodsPage() {
 					carbs: parseFloat(carbs || '0') || 0,
 					protein: parseFloat(protein || '0') || 0,
 					fat: parseFloat(fat || '0') || 0,
+					sodium_mg: parseFloat(sodiumMg || '0') || 0,
 					show_in_quick: true,
 					sort_order: (foods[0]?.sort_order ?? 0) + 1
 				})
@@ -55,7 +58,7 @@ export default function FoodsPage() {
 				.single();
 			if (!error && data) {
 				setFoods((prev) => [
-					{ id: data.id, name, carbs: parseFloat(carbs || '0') || 0, protein: parseFloat(protein || '0') || 0, fat: parseFloat(fat || '0') || 0, sort_order: (foods[0]?.sort_order ?? 0) + 1 },
+					{ id: data.id, name, carbs: parseFloat(carbs || '0') || 0, protein: parseFloat(protein || '0') || 0, fat: parseFloat(fat || '0') || 0, sodium_mg: parseFloat(sodiumMg || '0') || 0, sort_order: (foods[0]?.sort_order ?? 0) + 1 },
 					...prev
 				]);
 			}
@@ -64,6 +67,7 @@ export default function FoodsPage() {
 		setCarbs('');
 		setProtein('');
 		setFat('');
+		setSodiumMg('');
 	}
 
 	async function removeFood(id: string) {
@@ -97,7 +101,8 @@ export default function FoodsPage() {
 					name: f.name,
 					carbs: f.carbs,
 					protein: f.protein,
-					fat: f.fat
+					fat: f.fat,
+					sodium_mg: f.sodium_mg
 				})
 				.eq('id', f.id);
 		}
@@ -111,6 +116,7 @@ export default function FoodsPage() {
 				<input value={carbs} onChange={(e) => setCarbs(e.target.value)} placeholder="碳水" className="rounded border border-gray-300 px-3 py-2 text-sm" />
 				<input value={protein} onChange={(e) => setProtein(e.target.value)} placeholder="蛋白质" className="rounded border border-gray-300 px-3 py-2 text-sm" />
 				<input value={fat} onChange={(e) => setFat(e.target.value)} placeholder="脂肪" className="rounded border border-gray-300 px-3 py-2 text-sm" />
+				<input value={sodiumMg} onChange={(e) => setSodiumMg(e.target.value)} placeholder="钠 mg" className="rounded border border-gray-300 px-3 py-2 text-sm" />
 				<button onClick={addFood} className="col-span-2 rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white">添加到食物库</button>
 			</div>
 
@@ -130,9 +136,10 @@ export default function FoodsPage() {
 							<input type="number" value={f.carbs} onChange={(e) => setFoods((prev) => prev.map((x) => x.id === f.id ? { ...x, carbs: parseFloat(e.target.value || '0') } : x))} className="rounded border border-gray-300 px-2 py-1 text-sm" placeholder="碳水" />
 							<input type="number" value={f.protein} onChange={(e) => setFoods((prev) => prev.map((x) => x.id === f.id ? { ...x, protein: parseFloat(e.target.value || '0') } : x))} className="rounded border border-gray-300 px-2 py-1 text-sm" placeholder="蛋白质" />
 							<input type="number" value={f.fat} onChange={(e) => setFoods((prev) => prev.map((x) => x.id === f.id ? { ...x, fat: parseFloat(e.target.value || '0') } : x))} className="rounded border border-gray-300 px-2 py-1 text-sm" placeholder="脂肪" />
+							<input type="number" value={f.sodium_mg} onChange={(e) => setFoods((prev) => prev.map((x) => x.id === f.id ? { ...x, sodium_mg: parseFloat(e.target.value || '0') } : x))} className="rounded border border-gray-300 px-2 py-1 text-sm" placeholder="钠 mg" />
 							<button onClick={() => saveFoodEdit(f)} className="col-span-4 rounded border border-gray-300 px-2 py-1 text-sm">保存修改</button>
 						</div>
-						<div className="mt-1 text-xs text-gray-600">热量 {Math.round(f.protein * 4 + f.fat * 9 + f.carbs * 4)} kcal（按 4/4/9） · 碳水 {f.carbs}g · 蛋白质 {f.protein}g · 脂肪 {f.fat}g</div>
+						<div className="mt-1 text-xs text-gray-600">热量 {Math.round(f.protein * 4 + f.fat * 9 + f.carbs * 4)} kcal（按 4/4/9） · 碳水 {f.carbs}g · 蛋白质 {f.protein}g · 脂肪 {f.fat}g · 钠 {Math.round(f.sodium_mg)}mg</div>
 					</div>
 				))}
 				{foods.length === 0 && <div className="text-sm text-gray-500">暂无自定义食物。</div>}
